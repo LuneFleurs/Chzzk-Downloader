@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 로그인</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #09090b;
+            color: white;
+            font-family: system-ui;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            text-align: center;
+            max-width: 400px;
+        }
+        h1 {
+            color: #00ffa3;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #00ffa3;
+            color: #09090b;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background: #00dd8a;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .status.checking {
+            background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa;
+        }
+        .status.success {
+            background: rgba(34, 197, 94, 0.1);
+            color: #4ade80;
+        }
+        .status.error {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 치지직 로그인</h1>
+        <div id="status" class="status checking">대기 중...</div>
+        <div class="info">
+            <p>이 페이지는 자동으로 네이버 로그인으로 이동합니다.</p>
+            <p>로그인 후 다시 이 페이지로 돌아오면 자동으로 저장됩니다.</p>
+        </div>
+        <button id="manualCheck">수동으로 쿠키 확인</button>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+
+        function setStatus(message, type = 'checking') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function checkAndExtractCookies() {
+            const cookies = document.cookie;
+            console.log('Current cookies:', cookies);
+
+            // NID_AUT와 NID_SES 찾기
+            const cookieObj = {};
+            cookies.split(';').forEach(cookie => {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'NID_AUT' || name === 'NID_SES') {
+                    cookieObj[name] = value;
+                }
+            });
+
+            if (cookieObj.NID_AUT && cookieObj.NID_SES) {
+                setStatus('✅ 로그인 성공! 저장 중...', 'success');
+                console.log('Cookies found:', cookieObj);
+
+                // Tauri로 쿠키 전달
+                if (window.__TAURI__) {
+                    try {
+                        await window.__TAURI__.core.invoke('save_cookies_from_webview', {
+                            nidAut: cookieObj.NID_AUT,
+                            nidSes: cookieObj.NID_SES
+                        });
+                        setStatus('저장 완료! 창을 닫는 중...', 'success');
+                        setTimeout(() => {
+                            window.__TAURI__.core.invoke('close_login_webview');
+                        }, 1000);
+                    } catch (e) {
+                        setStatus('저장 실패: ' + e, 'error');
+                        console.error('Save failed:', e);
+                    }
+                } else {
+                    setStatus('Tauri API를 찾을 수 없습니다', 'error');
+                }
+            } else {
+                setStatus('쿠키를 찾을 수 없습니다. 로그인해주세요.', 'checking');
+                console.log('Cookies not found yet');
+            }
+        }
+
+        // 페이지 로드 시 URL 확인
+        window.addEventListener('load', () => {
+            const currentUrl = window.location.href;
+            console.log('Current URL:', currentUrl);
+
+            // 로컬 HTML 파일인 경우 네이버 로그인으로 리다이렉트
+            if (currentUrl.includes('login.html') && !currentUrl.includes('chzzk.naver.com')) {
+                setStatus('네이버 로그인으로 이동 중...', 'checking');
+                // 치지직으로 리다이렉트되도록 설정
+                window.location.href = 'https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fchzzk.naver.com%2F';
+            } else {
+                // 이미 치지직 페이지인 경우 쿠키 확인
+                setStatus('쿠키 확인 중...', 'checking');
+                checkAndExtractCookies();
+            }
+        });
+
+        // 주기적으로 쿠키 확인 (치지직 페이지에 있을 때)
+        setInterval(() => {
+            if (window.location.hostname.includes('chzzk.naver.com')) {
+                checkAndExtractCookies();
+            }
+        }, 2000);
+
+        // 수동 확인 버튼
+        document.getElementById('manualCheck').addEventListener('click', () => {
+            setStatus('쿠키 확인 중...', 'checking');
+            checkAndExtractCookies();
+        });
+    </script>
+</body>
+</html>
